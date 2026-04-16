@@ -56,6 +56,7 @@ export function resolveFirstBoundAccountId(params: {
   }
   const normalizedAgentId = normalizeAgentId(params.agentId);
   const normalizedPeerId = params.peerId?.trim() || undefined;
+  let wildcardPeerMatch: string | undefined;
   let channelOnlyFallback: string | undefined;
   for (const binding of listRouteBindings(params.cfg)) {
     const resolved = resolveNormalizedBindingMatch(binding);
@@ -66,7 +67,9 @@ export function resolveFirstBoundAccountId(params: {
     ) {
       continue;
     }
-    if (resolved.peerId) {
+    if (resolved.peerId === "*") {
+      wildcardPeerMatch ??= resolved.accountId;
+    } else if (resolved.peerId) {
       if (normalizedPeerId && resolved.peerId === normalizedPeerId) {
         return resolved.accountId;
       }
@@ -74,5 +77,5 @@ export function resolveFirstBoundAccountId(params: {
       channelOnlyFallback ??= resolved.accountId;
     }
   }
-  return channelOnlyFallback;
+  return wildcardPeerMatch ?? channelOnlyFallback;
 }
