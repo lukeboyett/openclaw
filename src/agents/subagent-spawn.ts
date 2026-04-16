@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { SubagentLifecycleHookRunner } from "../plugins/hooks.js";
+import { resolveFirstBoundAccountId } from "../routing/bound-account-read.js";
 import { isValidAgentId, normalizeAgentId, parseAgentSessionKey } from "../routing/session-key.js";
 import {
   normalizeLowercaseStringOrEmpty,
@@ -282,6 +283,30 @@ function summarizeError(err: unknown): string {
   return "error";
 }
 
+function resolveRequesterOriginForChild(params: {
+  cfg: OpenClawConfig;
+  targetAgentId: string;
+  requesterChannel?: string;
+  requesterAccountId?: string;
+  requesterTo?: string;
+  requesterThreadId?: string | number;
+}) {
+  const boundAccountId = params.requesterChannel
+    ? resolveFirstBoundAccountId({
+        cfg: params.cfg,
+        channelId: params.requesterChannel,
+        agentId: params.targetAgentId,
+        peerId: params.requesterTo,
+      })
+    : undefined;
+  return normalizeDeliveryContext({
+    channel: params.requesterChannel,
+    accountId: boundAccountId ?? params.requesterAccountId,
+    to: params.requesterTo,
+    threadId: params.requesterThreadId,
+  });
+}
+
 async function ensureThreadBindingForSubagentSpawn(params: {
   hookRunner: SubagentLifecycleHookRunner | null;
   childSessionKey: string;
@@ -382,12 +407,6 @@ export async function spawnSubagentDirect(
         ? params.cleanup
         : "keep";
   const expectsCompletionMessage = params.expectsCompletionMessage !== false;
-  const requesterOrigin = normalizeDeliveryContext({
-    channel: ctx.agentChannel,
-    accountId: ctx.agentAccountId,
-    to: ctx.agentTo,
-    threadId: ctx.agentThreadId,
-  });
   const hookRunner = subagentSpawnDeps.getGlobalHookRunner();
   const cfg = loadSubagentConfig();
 
@@ -449,6 +468,14 @@ export async function spawnSubagentDirect(
     };
   }
   const targetAgentId = requestedAgentId ? normalizeAgentId(requestedAgentId) : requesterAgentId;
+  const requesterOrigin = resolveRequesterOriginForChild({
+    cfg,
+    targetAgentId,
+    requesterChannel: ctx.agentChannel,
+    requesterAccountId: ctx.agentAccountId,
+    requesterTo: ctx.agentTo,
+    requesterThreadId: ctx.agentThreadId,
+  });
   if (targetAgentId !== requesterAgentId) {
     const allowAgents =
       resolveAgentConfig(cfg, requesterAgentId)?.subagents?.allowAgents ??
