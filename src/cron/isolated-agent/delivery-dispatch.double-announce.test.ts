@@ -578,6 +578,7 @@ describe("dispatchCronDelivery — double-announce guard", () => {
       contextKey: "cron-direct-delivery:v1:cron:test-job:1000:telegram::123456:",
       forceSenderIsOwnerFalse: true,
       trusted: false,
+      audience: "internal",
     });
   });
 
@@ -615,6 +616,7 @@ describe("dispatchCronDelivery — double-announce guard", () => {
       contextKey: "cron-direct-delivery:v1:cron:test-job:1000:telegram::123456:",
       forceSenderIsOwnerFalse: true,
       trusted: false,
+      audience: "internal",
     });
   });
 
@@ -645,6 +647,7 @@ describe("dispatchCronDelivery — double-announce guard", () => {
         contextKey: "cron-direct-delivery:v1:cron:test-job:1000:telegram::123456:",
         forceSenderIsOwnerFalse: true,
         trusted: false,
+        audience: "internal",
       },
     );
   });
@@ -680,6 +683,7 @@ describe("dispatchCronDelivery — double-announce guard", () => {
       contextKey: "cron-direct-delivery:v1:cron:test-job:1000:telegram::123456:",
       forceSenderIsOwnerFalse: true,
       trusted: false,
+      audience: "internal",
     });
   });
 
@@ -772,6 +776,7 @@ describe("dispatchCronDelivery — double-announce guard", () => {
       contextKey: "cron-direct-delivery:v1:cron:test-job:1000:telegram::123456:",
       forceSenderIsOwnerFalse: true,
       trusted: false,
+      audience: "internal",
     });
   });
 
@@ -821,6 +826,7 @@ describe("dispatchCronDelivery — double-announce guard", () => {
         contextKey: "cron-direct-delivery:v1:cron:test-job:1000:telegram::123456:",
         forceSenderIsOwnerFalse: true,
         trusted: false,
+        audience: "internal",
       },
     );
   });
