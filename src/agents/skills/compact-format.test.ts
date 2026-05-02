@@ -242,11 +242,10 @@ describe("applySkillsPromptLimits (via buildWorkspaceSkillsPrompt)", () => {
     expect(prompt).not.toContain("<description>");
   });
 
-  it("budget check uses compacted home-dir paths, not canonical paths", () => {
-    // Skills with home-dir prefix get compacted (e.g. /home/user/... → ~/...).
-    // Budget check must use the compacted length, not the longer canonical path.
-    // If it used canonical paths, it would overestimate and potentially drop
-    // skills that actually fit after compaction.
+  it("budget check uses the same absolute paths rendered in the prompt", () => {
+    // Skill locations are machine instructions for read-tool calls, so keep them
+    // absolute rather than compacting to `~` (tool-side home expansion can differ
+    // from the managed skill root).
     const home = os.homedir();
     const skills = Array.from({ length: 30 }, (_, i) =>
       makeSkill(
@@ -255,27 +254,17 @@ describe("applySkillsPromptLimits (via buildWorkspaceSkillsPrompt)", () => {
         `${home}/.openclaw/workspace/skills/skill-${i}/SKILL.md`,
       ),
     );
-    // Compute compacted lengths (what the prompt will actually contain)
-    const compactedSkills = skills.map((s) => ({
-      ...s,
-      filePath: s.filePath.replace(home, "~"),
-    }));
-    const compactedCompactLen = formatSkillsCompact(compactedSkills).length;
-    const canonicalCompactLen = formatSkillsCompact(skills).length;
-    // Sanity: canonical paths are longer than compacted paths
-    expect(canonicalCompactLen).toBeGreaterThan(compactedCompactLen);
-    // Set budget between compacted and canonical lengths — only fits if
-    // budget check uses compacted paths (correct) not canonical (wrong).
-    const budget = Math.floor((compactedCompactLen + canonicalCompactLen) / 2) + 150;
+    const absoluteCompactLen = formatSkillsCompact(skills).length;
+    const budget = absoluteCompactLen + 150;
     const prompt = buildPrompt(skills, { maxChars: budget });
-    // All 30 skills should be preserved in compact form (tier 2, no dropping)
+    // All 30 skills should be preserved in compact form (tier 2, no dropping).
     expect(prompt).toContain("skill-0");
     expect(prompt).toContain("skill-29");
     expect(prompt).not.toContain("included");
     expect(prompt).toContain("compact format");
-    // Verify paths in output are compacted
-    expect(prompt).toContain("~/");
-    expect(prompt).not.toContain(home);
+    // Verify prompt locations remain absolute.
+    expect(prompt).toContain(home);
+    expect(prompt).not.toContain("~/");
   });
 
   it("skills are sorted alphabetically regardless of entry insertion order", () => {
@@ -292,7 +281,7 @@ describe("applySkillsPromptLimits (via buildWorkspaceSkillsPrompt)", () => {
     expect(nameMatches).toEqual(["apple", "banana", "mango", "zoo"]);
   });
 
-  it("resolvedSkills in snapshot keeps canonical paths, not compacted", () => {
+  it("resolvedSkills and prompt both keep canonical absolute paths", () => {
     const home = os.homedir();
     const skills = Array.from({ length: 5 }, (_, i) =>
       makeSkill(`skill-${i}`, "A skill", `${home}/.openclaw/workspace/skills/skill-${i}/SKILL.md`),
@@ -300,8 +289,9 @@ describe("applySkillsPromptLimits (via buildWorkspaceSkillsPrompt)", () => {
     const snapshot = buildWorkspaceSkillSnapshot("/fake", {
       entries: skills.map(makeEntry),
     });
-    // Prompt should use compacted paths
-    expect(snapshot.prompt).toContain("~/");
+    // Prompt should use absolute paths so tool calls do not depend on `~` expansion.
+    expect(snapshot.prompt).toContain(home);
+    expect(snapshot.prompt).not.toContain("~/");
     // resolvedSkills should preserve canonical (absolute) paths
     expect(snapshot.resolvedSkills).toHaveLength(5);
     for (const skill of snapshot.resolvedSkills ?? []) {

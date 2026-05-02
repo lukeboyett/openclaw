@@ -31,16 +31,6 @@ import type {
 const fsp = fs.promises;
 const skillsLogger = createSubsystemLogger("skills");
 
-/**
- * Replace the user's home directory prefix with `~` in skill file paths
- * to reduce system prompt token usage. Models understand `~` expansion,
- * and the read tool resolves `~` to the home directory.
- *
- * Example: `/Users/alice/.bun/.../skills/github/SKILL.md`
- *       → `~/.bun/.../skills/github/SKILL.md`
- *
- * Saves ~5–6 tokens per skill path × N skills ≈ 400–600 tokens total.
- */
 function resolveUserHomeDir(): string | undefined {
   return resolveOsHomeDir(process.env, os.homedir);
 }
@@ -66,13 +56,18 @@ function resolveCompactHomePrefixes(): string[] {
     .sort((a, b) => b.length - a.length);
 }
 
-function compactSkillPaths(skills: Skill[]): Skill[] {
-  const homes = resolveCompactHomePrefixes();
-  if (homes.length === 0) return skills;
-  return skills.map((s) => ({
-    ...s,
-    filePath: compactHomePath(s.filePath, homes),
-  }));
+/**
+ * Keep prompt-facing skill locations absolute.
+ *
+ * These paths are machine instructions for the model to pass back into tools.
+ * Compacting `/Users/<runner>/.openclaw/...` to `~/.openclaw/...` is tempting
+ * for tokens, but it is unsafe when the tool/runtime home differs from the
+ * workspace owner (for example, agent workspaces under `/Users/luke` while the
+ * managed runtime skills live under `/Users/mercury`). In that case agents
+ * repeatedly expand `~` to a stale skill root and fail to read SKILL.md.
+ */
+function makePromptSkillPaths(skills: Skill[]): Skill[] {
+  return skills.map((s) => ({ ...s }));
 }
 
 function compactHomePath(filePath: string, homes: readonly string[]): string {
@@ -1111,11 +1106,12 @@ function resolveWorkspaceSkillPromptState(
   const promptEntries = eligible.filter((entry) => isSkillVisibleInAvailableSkillsPrompt(entry));
   const remoteNote = opts?.eligibility?.remote?.note?.trim();
   const resolvedSkills = promptEntries.map((entry) => entry.skill);
-  // Derive prompt-facing skills with compacted paths (e.g. ~/...) once.
-  // Budget checks and final render both use this same representation so the
-  // tier decision is based on the exact strings that end up in the prompt.
+  // Derive prompt-facing skills once. Budget checks and final render both use
+  // this same representation so the tier decision is based on the exact strings
+  // that end up in the prompt. Keep locations absolute; do not compact them to
+  // `~`, because tool-side home expansion can differ from the managed skill root.
   // resolvedSkills keeps canonical paths for snapshot / runtime consumers.
-  const promptSkills = compactSkillPaths(resolvedSkills)
+  const promptSkills = makePromptSkillPaths(resolvedSkills)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name, "en"));
   const { skillsForPrompt, truncated, compact } = applySkillsPromptLimits({

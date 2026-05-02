@@ -7,7 +7,7 @@ import {
   buildWorkspaceSkillsPrompt,
 } from "./skills/workspace.js";
 
-describe("compactSkillPaths", () => {
+describe("prompt skill locations", () => {
   function buildPromptForFixtureSkill(params: {
     workspaceRoot: string;
     skillDir: string;
@@ -37,7 +37,7 @@ describe("compactSkillPaths", () => {
     });
   }
 
-  it("replaces home directory prefix with ~ in skill locations", () => {
+  it("keeps home directory skill locations absolute", () => {
     const home = os.homedir();
     const skillDir = path.join(home, ".openclaw-test-skills", "test-skill");
 
@@ -48,8 +48,8 @@ describe("compactSkillPaths", () => {
       description: "A test skill for path compaction",
     });
 
-    expect(prompt).not.toContain(home + path.sep);
-    expect(prompt).toContain("~/");
+    expect(prompt).toContain(path.join(skillDir, "SKILL.md"));
+    expect(prompt).not.toContain("~/");
     expect(prompt).toContain("test-skill");
     expect(prompt).toContain("A test skill for path compaction");
   });
