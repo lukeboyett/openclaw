@@ -131,6 +131,7 @@ export async function installExtractedSkillRoot(params: {
   logger?: ArchiveLogger;
   scan?: SkillArchiveInstallScan;
   rootMarkers?: readonly string[];
+  targetDir?: string;
 }): Promise<SkillArchiveInstallResult> {
   try {
     if (
@@ -143,7 +144,8 @@ export async function installExtractedSkillRoot(params: {
     }
     let targetDir: string;
     try {
-      targetDir = resolveWorkspaceSkillInstallDir(params.workspaceDir, params.slug);
+      targetDir =
+        params.targetDir ?? resolveWorkspaceSkillInstallDir(params.workspaceDir, params.slug);
     } catch (err) {
       return installFailure(formatErrorMessage(err), "invalid-request");
     }

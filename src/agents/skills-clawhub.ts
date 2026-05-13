@@ -10,14 +10,33 @@ import {
 import { formatErrorMessage } from "../infra/errors.js";
 import { pathExists } from "../infra/fs-safe.js";
 import { withExtractedArchiveRoot } from "../infra/install-flow.js";
+import { resolveSafeInstallDir } from "../infra/install-safe-path.js";
 import { tryReadJson, writeJson } from "../infra/json-files.js";
+import { CONFIG_DIR } from "../utils.js";
 import {
   CLAWHUB_SKILL_ARCHIVE_ROOT_MARKERS,
   installExtractedSkillRoot,
   normalizeTrackedSkillSlug,
-  resolveWorkspaceSkillInstallDir,
   validateRequestedSkillSlug,
 } from "./skills-archive-install.js";
+
+// Mercury local patch: ClawHub installs land in `~/.openclaw/skills/<slug>`
+// (centrally managed, shared across workspaces) instead of
+// `<workspace>/skills/<slug>` (per-workspace). The legacy workspace resolver
+// stays available so other code paths that genuinely want per-workspace
+// installs (manual `openclaw skills install`, archive-RPC) keep working;
+// only ClawHub installs are redirected via the helper below.
+function resolveManagedSkillInstallDir(slug: string): string {
+  const target = resolveSafeInstallDir({
+    baseDir: path.join(CONFIG_DIR, "skills"),
+    id: slug,
+    invalidNameMessage: "invalid skill target path",
+  });
+  if (!target.ok) {
+    throw new Error(target.error);
+  }
+  return target.path;
+}
 
 const DOT_DIR = ".clawhub";
 const LEGACY_DOT_DIR = ".clawdhub";
@@ -73,7 +92,7 @@ async function resolveRequestedUpdateSlug(params: {
   lock: ClawHubSkillsLockfile;
 }): Promise<string> {
   const trackedSlug = normalizeTrackedSkillSlug(params.requestedSlug);
-  const trackedTargetDir = resolveWorkspaceSkillInstallDir(params.workspaceDir, trackedSlug);
+  const trackedTargetDir = resolveManagedSkillInstallDir(trackedSlug);
   const trackedOrigin = await readClawHubSkillOrigin(trackedTargetDir);
   if (trackedOrigin || params.lock.skills[trackedSlug]) {
     return trackedSlug;
@@ -209,7 +228,7 @@ async function performClawHubSkillInstall(
       version: params.version,
       baseUrl: params.baseUrl,
     });
-    const targetDir = resolveWorkspaceSkillInstallDir(params.workspaceDir, params.slug);
+    const targetDir = resolveManagedSkillInstallDir(params.slug);
     if (!params.force && (await pathExists(targetDir))) {
       return {
         ok: false,
@@ -238,6 +257,7 @@ async function performClawHubSkillInstall(
             logger: params.logger,
             scan: false,
             rootMarkers: CLAWHUB_SKILL_ARCHIVE_ROOT_MARKERS,
+            targetDir,
           }),
       });
       if (!install.ok) {
@@ -315,7 +335,7 @@ async function resolveTrackedUpdateTarget(params: {
   lock: ClawHubSkillsLockfile;
   baseUrl?: string;
 }): Promise<TrackedUpdateTarget> {
-  const targetDir = resolveWorkspaceSkillInstallDir(params.workspaceDir, params.slug);
+  const targetDir = resolveManagedSkillInstallDir(params.slug);
   const origin = (await readClawHubSkillOrigin(targetDir)) ?? null;
   if (!origin && !params.lock.skills[params.slug]) {
     return {

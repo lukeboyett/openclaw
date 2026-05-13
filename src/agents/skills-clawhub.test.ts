@@ -35,6 +35,11 @@ vi.mock("../infra/fs-safe.js", () => ({
 
 const { installSkillFromClawHub, searchSkillsFromClawHub, updateSkillsFromClawHub } =
   await import("./skills-clawhub.js");
+const { CONFIG_DIR } = await import("../utils.js");
+
+// Mercury local patch: ClawHub installs always land under CONFIG_DIR/skills/<slug>
+// (no legacy per-workspace fallback). Tests assert against the managed location.
+const managedSkillDir = (slug: string) => path.join(CONFIG_DIR, "skills", slug);
 
 function expectInstallPackageSourceDir(sourceDir: string) {
   const call = installPackageDirMock.mock.calls.at(0);
@@ -108,10 +113,10 @@ describe("skills-clawhub", () => {
       expect(params.rootMarkers).toEqual(["SKILL.md", "skill.md", "skills.md", "SKILL.MD"]);
       return await params.onExtracted("/tmp/extracted-skill");
     });
-    installPackageDirMock.mockResolvedValue({
+    installPackageDirMock.mockImplementation(async (params: { targetDir: string }) => ({
       ok: true,
-      targetDir: "/tmp/workspace/skills/agentreceipt",
-    });
+      targetDir: params.targetDir,
+    }));
   });
 
   it("installs ClawHub skills from flat-root archives", async () => {
@@ -129,7 +134,7 @@ describe("skills-clawhub", () => {
     expectInstalledSkill(result, {
       slug: "agentreceipt",
       version: "1.0.0",
-      targetDir: "/tmp/workspace/skills/agentreceipt",
+      targetDir: managedSkillDir("agentreceipt"),
     });
     expect(archiveCleanupMock).toHaveBeenCalledTimes(1);
   });
@@ -149,119 +154,28 @@ describe("skills-clawhub", () => {
     },
   );
 
-  describe("legacy tracked slugs remain updatable", () => {
-    async function createLegacyTrackedSkillFixture(slug: string) {
-      const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-skills-clawhub-"));
-      const skillDir = path.join(workspaceDir, "skills", slug);
-      await fs.mkdir(path.join(skillDir, ".clawhub"), { recursive: true });
-      await fs.mkdir(path.join(workspaceDir, ".clawhub"), { recursive: true });
-      await fs.writeFile(
-        path.join(skillDir, ".clawhub", "origin.json"),
-        `${JSON.stringify(
-          {
-            version: 1,
-            registry: "https://legacy.clawhub.ai",
-            slug,
-            installedVersion: "0.9.0",
-            installedAt: 123,
-          },
-          null,
-          2,
-        )}\n`,
-        "utf8",
-      );
-      await fs.writeFile(
-        path.join(workspaceDir, ".clawhub", "lock.json"),
-        `${JSON.stringify(
-          {
-            version: 1,
-            skills: {
-              [slug]: {
-                version: "0.9.0",
-                installedAt: 123,
-              },
-            },
-          },
-          null,
-          2,
-        )}\n`,
-        "utf8",
-      );
-      return { workspaceDir, skillDir };
-    }
+  // Mercury local patch: dropped "legacy tracked slugs remain updatable" suite.
+  // Original upstream patch (a9a0f07169) preserved a fallback so already-installed
+  // per-workspace ClawHub skills continued to update in-place. Mercury's
+  // skill-sharing story uses `skills.load.extraDirs` from MercuryShared, not
+  // per-workspace ClawHub installs, so we accept the simplification: all
+  // ClawHub installs go to the managed dir; pre-existing per-workspace
+  // installs are not auto-migrated. If a future need arises, restore the
+  // legacy fallback by porting the rest of a9a0f07169.
 
-    function expectLegacyUpdateSuccess(results: unknown, workspaceDir: string, slug: string) {
-      expect(Array.isArray(results)).toBe(true);
-      const first = (results as Array<Record<string, unknown>>)[0];
-      expect(first?.ok).toBe(true);
-      expect(first?.slug).toBe(slug);
-      expect(first?.previousVersion).toBe("0.9.0");
-      expect(first?.version).toBe("1.0.0");
-      expect(first?.targetDir).toBe(path.join(workspaceDir, "skills", slug));
-    }
+  it("still rejects an untracked Unicode slug passed to update", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-skills-clawhub-"));
 
-    it("updates all tracked legacy Unicode slugs in place", async () => {
-      const slug = "re\u0430ct";
-      const { workspaceDir } = await createLegacyTrackedSkillFixture(slug);
-      installPackageDirMock.mockResolvedValueOnce({
-        ok: true,
-        targetDir: path.join(workspaceDir, "skills", slug),
-      });
-
-      try {
-        const results = await updateSkillsFromClawHub({
+    try {
+      await expect(
+        updateSkillsFromClawHub({
           workspaceDir,
-        });
-
-        expect(fetchClawHubSkillDetailMock).toHaveBeenCalledWith({
-          slug,
-          baseUrl: "https://legacy.clawhub.ai",
-        });
-        expect(downloadClawHubSkillArchiveMock).toHaveBeenCalledWith({
-          slug,
-          version: "1.0.0",
-          baseUrl: "https://legacy.clawhub.ai",
-        });
-        expectLegacyUpdateSuccess(results, workspaceDir, slug);
-      } finally {
-        await fs.rm(workspaceDir, { recursive: true, force: true });
-      }
-    });
-
-    it("updates a legacy Unicode slug when requested explicitly", async () => {
-      const slug = "re\u0430ct";
-      const { workspaceDir } = await createLegacyTrackedSkillFixture(slug);
-      installPackageDirMock.mockResolvedValueOnce({
-        ok: true,
-        targetDir: path.join(workspaceDir, "skills", slug),
-      });
-
-      try {
-        const results = await updateSkillsFromClawHub({
-          workspaceDir,
-          slug,
-        });
-
-        expectLegacyUpdateSuccess(results, workspaceDir, slug);
-      } finally {
-        await fs.rm(workspaceDir, { recursive: true, force: true });
-      }
-    });
-
-    it("still rejects an untracked Unicode slug passed to update", async () => {
-      const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-skills-clawhub-"));
-
-      try {
-        await expect(
-          updateSkillsFromClawHub({
-            workspaceDir,
-            slug: "re\u0430ct",
-          }),
-        ).rejects.toThrow("Invalid skill slug");
-      } finally {
-        await fs.rm(workspaceDir, { recursive: true, force: true });
-      }
-    });
+          slug: "re\u0430ct",
+        }),
+      ).rejects.toThrow("Invalid skill slug");
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
   });
 
   describe("normalizeSlug rejects non-ASCII homograph slugs", () => {
